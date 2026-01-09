@@ -19,7 +19,9 @@ def init_db():
         "dmami": 2350100,
         "alawlaqi": 150200
     }
-    for cid, count in initial_votes.items():
+
+ for cid, count in
+ initial_votes.items():
         cursor.execute('INSERT OR IGNORE INTO candidates VALUES (?, ?)', (cid, count))
     conn.commit()
     conn.close()
@@ -198,8 +200,7 @@ class FinalContestServer(BaseHTTPRequestHandler):
         </style></head><body><div class="overlay"></div><div class="msg-box"><h1 style="font-size:50px; margin:0;">{icon}</h1><h2>{title}</h2><p>{msg}</p><a href="/vote" style="text-decoration:none; color:#0d3b3f; font-weight:bold;">العودة</a></div></body></html>"""
         self.wfile.write(html.encode('utf-8'))
 
-PORT = int(os.environ.get("PORT",
- 10000))
+PORT = int(os.environ.get("PORT", 10000))
 server = HTTPServer(('0.0.0.0', PORT), FinalContestServer)
 server.allow_reuse_address = True
 print(f"🚀 السيرفر يعمل بالتصميم الرسمي الكامل على {PORT}")
