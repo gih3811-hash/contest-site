@@ -20,9 +20,10 @@ def init_db():
         "alawlaqi": 150200
     }
 
- for cid, count in
- initial_votes.items():
+    for cid, count in initial_votes.items():
+
         cursor.execute('INSERT OR IGNORE INTO candidates VALUES (?, ?)', (cid, count))
+
     conn.commit()
     conn.close()
 
